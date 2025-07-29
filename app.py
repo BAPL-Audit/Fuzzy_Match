@@ -28,8 +28,11 @@ def fuzzy_phrase_match(set1, set2, threshold):
 # Highlight matches in workbook
 def highlight_workbook(upload, min_len, max_len, threshold):
     threshold /= 100
+    upload.seek(0)  # Reset pointer in case it was already read
     wb = load_workbook(upload)
     sheets = wb.sheetnames
+    if len(sheets) < 2:
+        return wb, []
     ws1 = wb[sheets[0]]
     ws2 = wb[sheets[1]]
 
@@ -39,28 +42,31 @@ def highlight_workbook(upload, min_len, max_len, threshold):
     def process_matches(ws_a, ws_b, cross=True):
         matched = []
         for row_a in ws_a.iter_rows(min_row=2, values_only=False):
-            text_a = row_a[0].value
+            cell_a = row_a[0]
+            text_a = cell_a.value
             if not text_a:
                 continue
             phrases_a = get_phrases(text_a, min_len, max_len)
             for row_b in (ws_b.iter_rows(min_row=2, values_only=False) if cross else ws_a.iter_rows(min_row=2, values_only=False)):
-                text_b = row_b[0].value
-                if not text_b or (cross is False and row_a == row_b):
+                cell_b = row_b[0]
+                text_b = cell_b.value
+                if not text_b or (not cross and cell_a.coordinate == cell_b.coordinate):
                     continue
                 phrases_b = get_phrases(text_b, min_len, max_len)
                 matched_flag, phrase1, phrase2 = fuzzy_phrase_match(phrases_a, phrases_b, threshold)
                 if matched_flag:
-                    row_a[0].fill = green if cross else yellow
-                    row_b[0].fill = green if cross else yellow
+                    cell_a.fill = green if cross else yellow
+                    cell_b.fill = green if cross else yellow
                     matched.append((text_a, text_b, phrase1, phrase2, cross))
         return matched
 
     summary = []
     cross_matches = process_matches(ws1, ws2, cross=True)
-    intra1_matches = process_matches(ws1, ws1, cross=False)
-    intra2_matches = process_matches(ws2, ws2, cross=False)
+    # Optional: Uncomment below if you want intra-sheet matching
+    # intra1_matches = process_matches(ws1, ws1, cross=False)
+    # intra2_matches = process_matches(ws2, ws2, cross=False)
 
-    summary.extend(cross_matches + intra1_matches + intra2_matches)
+    summary.extend(cross_matches)  # + intra1_matches + intra2_matches)
     return wb, summary
 
 st.set_page_config(page_title="Excel Phrase Matcher", layout="wide")
@@ -85,7 +91,10 @@ if uploaded_file:
         st.success("✅ Matching completed and highlights applied!")
         st.download_button("📥 Download Highlighted Workbook", data=bio, file_name="highlighted_matches.xlsx")
 
-        st.markdown("### 📊 Match Summary")
-        st.dataframe(pd.DataFrame(summary, columns=["Sheet1 Row", "Sheet2 Row", "Matched Phrase 1", "Matched Phrase 2", "Cross-Sheet?"]))
+        if summary:
+            st.markdown("### 📊 Match Summary")
+            st.dataframe(pd.DataFrame(summary, columns=["Sheet1 Row", "Sheet2 Row", "Matched Phrase 1", "Matched Phrase 2", "Cross-Sheet?"]))
+        else:
+            st.warning("No matches found with the current threshold.")
 else:
     st.info("⬆️ Upload a file to begin.")
